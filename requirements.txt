@@ -1,0 +1,5 @@
+streamlit>=1.43
+anthropic[bedrock]
+boto3
+pillow
+cryptography
