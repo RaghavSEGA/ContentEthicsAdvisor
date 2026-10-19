@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """
-Content Ethics Advisor
-Answers developers' content-ethics questions from the Expression Ethics Unit's
-(anonymized) case history, with a panel of cultural-perspective reviewers.
+Content Advisor
+Answers developers' content questions from Rinri's (anonymized) case history,
+with a panel of cultural-perspective reviewers.
 
-Auth:     @segaamerica.com OTP via AWS SES -> HMAC-signed URL token (?t=)
+Auth:     @segaamerica.com (English email) or @sega.com (Japanese email) OTP via AWS SES
+          -> HMAC-signed URL token (?t=)
 Models:   Claude via AWS Bedrock
             lead reviewer (draft + final answer) · panel personas · relevance router
 Cases:    from prepare_cases.py — an encrypted file in the repo (key in secrets),
@@ -32,7 +33,11 @@ from prompts import (BASE_PROMPT, DRAFT_ADDENDUM, PANEL_FRAME, PERSONAS, ROUTER_
 # Constants
 # ─────────────────────────────────────────────────────────────────────────────
 
-ALLOWED_DOMAIN = "@segaamerica.com"
+# Allowed sign-in domains and the language of the OTP email each one receives.
+ALLOWED_DOMAINS = {
+    "@segaamerica.com": "en",
+    "@sega.com":        "ja",
+}
 OTP_EXPIRY     = 600        # 10 minutes
 TOKEN_EXPIRY   = 86400      # 1 day
 MAX_ATTEMPTS   = 5
@@ -76,7 +81,7 @@ CONCERN_STYLE = {
 # ─────────────────────────────────────────────────────────────────────────────
 
 st.set_page_config(
-    page_title="Content Ethics Advisor",
+    page_title="Content Advisor",
     page_icon="🧭",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -137,8 +142,32 @@ def verify_token(token: str):
     except Exception:
         return None
 
+def email_language(email: str):
+    """'en' or 'ja' for an allowed address, None if the domain isn't allowed."""
+    for domain, lang in ALLOWED_DOMAINS.items():
+        if email.endswith(domain):
+            return lang
+    return None
+
+def otp_email_content(lang: str, otp: str) -> tuple:
+    """(subject, body) for the OTP email in the given language."""
+    minutes = OTP_EXPIRY // 60
+    if lang == "ja":
+        return (
+            "Content Advisor 認証コード",
+            f"ワンタイム認証コード：{otp}\n\n"
+            f"このコードの有効期限は{minutes}分です。\n"
+            "お心当たりのない場合は、このメールを破棄してください。",
+        )
+    return (
+        "Your Content Advisor code",
+        f"Your one-time verification code is: {otp}\n\n"
+        f"This code expires in {minutes} minutes.",
+    )
+
 def send_otp_email(email: str, otp: str):
     import boto3
+    subject, body = otp_email_content(email_language(email) or "en", otp)
     ses = boto3.client(
         "ses",
         region_name=st.secrets["AWS_SES_REGION"],
@@ -149,9 +178,8 @@ def send_otp_email(email: str, otp: str):
         Source=st.secrets["EMAIL_FROM"],
         Destination={"ToAddresses": [email]},
         Message={
-            "Subject": {"Data": "Your Content Ethics Advisor code"},
-            "Body": {"Text": {"Data": f"Your one-time verification code is: {otp}\n\n"
-                                      f"This code expires in {OTP_EXPIRY // 60} minutes."}},
+            "Subject": {"Data": subject, "Charset": "UTF-8"},
+            "Body": {"Text": {"Data": body, "Charset": "UTF-8"}},
         },
     )
 
@@ -167,19 +195,21 @@ def login_gate():
     if st.session_state.get("auth_email"):
         return
 
-    st.markdown("## 🧭 Content Ethics Advisor")
-    st.caption("Sign in with your Sega America email to continue.")
+    domains_text = " or ".join(ALLOWED_DOMAINS)
+    st.markdown("## 🧭 Content Advisor")
+    st.caption(f"Sign in with your {domains_text} email to continue. "
+               "会社のメールアドレスでサインインしてください。")
 
     step = st.session_state.get("auth_step", "email")
 
     if step == "email":
         with st.form("email_form"):
-            email = st.text_input("Work email", placeholder="you@segaamerica.com")
+            email = st.text_input("Work email", placeholder="you@segaamerica.com / you@sega.com")
             submitted = st.form_submit_button("Send code")
         if submitted:
             email = email.strip().lower()
-            if not email.endswith(ALLOWED_DOMAIN):
-                st.error(f"Please use an {ALLOWED_DOMAIN} address.")
+            if not email_language(email):
+                st.error(f"Please use an {domains_text} address.")
             else:
                 otp = f"{pysecrets.randbelow(1_000_000):06d}"
                 try:
@@ -580,7 +610,7 @@ def render_panel(panel: list, router_reason: str, terms: list, user_text: str):
 # Sidebar
 # ─────────────────────────────────────────────────────────────────────────────
 
-st.sidebar.markdown("### 🧭 Content Ethics Advisor")
+st.sidebar.markdown("### 🧭 Content Advisor")
 st.sidebar.caption(f"Signed in as {st.session_state.get('auth_email', '')}")
 
 if st.sidebar.button("New conversation", width="stretch"):
@@ -603,7 +633,7 @@ for key, p in PERSONAS.items():
 show_panel = st.sidebar.toggle("Show panel notes under answers", value=True, disabled=not panel_on)
 
 st.sidebar.divider()
-st.sidebar.caption("Guidance only, not an approval. Confirm with the Expression Ethics Unit "
+st.sidebar.caption("Guidance only, not an approval. Confirm with Rinri "
                    "before finalizing.")
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -620,7 +650,7 @@ if "history" not in st.session_state:
     st.session_state["history"] = []
 history = st.session_state["history"]
 
-st.markdown("## Content Ethics Advisor")
+st.markdown("## Content Advisor")
 st.caption("Describe the content you want checked — attach a screenshot if it helps. "
            "English or Japanese. 日本語でもご質問いただけます。")
 
