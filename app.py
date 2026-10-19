@@ -35,8 +35,8 @@ from prompts import (BASE_PROMPT, DRAFT_ADDENDUM, PANEL_FRAME, PERSONAS, ROUTER_
 
 # Allowed sign-in domains and the language of the OTP email each one receives.
 ALLOWED_DOMAINS = {
-    "@segaamerica.com": "en",
-    "@sega.com":        "ja",
+    "segaamerica.com": "en",
+    "sega.com":        "ja",
 }
 OTP_EXPIRY     = 600        # 10 minutes
 TOKEN_EXPIRY   = 86400      # 1 day
@@ -143,11 +143,15 @@ def verify_token(token: str):
         return None
 
 def email_language(email: str):
-    """'en' or 'ja' for an allowed address, None if the domain isn't allowed."""
-    for domain, lang in ALLOWED_DOMAINS.items():
-        if email.endswith(domain):
-            return lang
-    return None
+    """'en' or 'ja' for an allowed address, None if the domain isn't allowed.
+    Compares the exact domain after the @, so look-alikes such as notsega.com
+    or subdomains such as x.sega.com are rejected."""
+    if email.count("@") != 1:
+        return None
+    local, _, domain = email.strip().lower().partition("@")
+    if not local:
+        return None
+    return ALLOWED_DOMAINS.get(domain)
 
 def otp_email_content(lang: str, otp: str) -> tuple:
     """(subject, body) for the OTP email in the given language."""
@@ -195,7 +199,7 @@ def login_gate():
     if st.session_state.get("auth_email"):
         return
 
-    domains_text = " or ".join(ALLOWED_DOMAINS)
+    domains_text = " or ".join(f"@{d}" for d in ALLOWED_DOMAINS)
     st.markdown("## 🧭 Content Advisor")
     st.caption(f"Sign in with your {domains_text} email to continue. "
                "会社のメールアドレスでサインインしてください。")
